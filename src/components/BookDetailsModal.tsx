@@ -69,6 +69,7 @@ export const BookDetailsModal: React.FC<BookDetailsModalProps> = ({
           </button>
         </div>
 
+        {/* Scrollable body - content scrolls above the sticky footer */}
         <div className="details-modal-body">
           {!confirmDelete ? (
             <>
@@ -190,37 +191,43 @@ export const BookDetailsModal: React.FC<BookDetailsModalProps> = ({
                   </div>
                 </div>
               )}
-
-              <div className="details-action-buttons">
-                <button className="btn btn-primary flex-1" onClick={onRead}>
-                  <BookOpen size={18} />
-                  <span>Read Book</span>
-                </button>
-                <button 
-                  className="btn btn-secondary delete-trigger-btn"
-                  onClick={() => setConfirmDelete(true)}
-                  title="Remove from Shelf"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
             </>
           ) : (
             <div className="delete-confirm-container">
               <AlertTriangle size={48} className="delete-warning-icon" />
               <h3>Remove from Shelf?</h3>
               <p className="delete-warning-text">
-                Are you sure you want to delete <strong>“{book.title}”</strong>? This action will permanently erase the book file and your reading progress from this browser.
+                Are you sure you want to delete <strong>"{book.title}"</strong>? This action will permanently erase the book file and your reading progress from this browser.
               </p>
-              <div className="delete-confirm-buttons">
-                <button className="btn btn-secondary flex-1" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-                <button className="btn btn-primary delete-final-btn flex-1" onClick={onDelete}>
-                  <Trash2 size={18} />
-                  <span>Permanently Delete</span>
-                </button>
-              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sticky action footer — always visible above the OS nav bar */}
+        <div className="details-action-footer">
+          {!confirmDelete ? (
+            <div className="details-action-buttons">
+              <button className="btn btn-primary flex-1" onClick={onRead}>
+                <BookOpen size={18} />
+                <span>Read Book</span>
+              </button>
+              <button 
+                className="btn btn-secondary delete-trigger-btn"
+                onClick={() => setConfirmDelete(true)}
+                title="Remove from Shelf"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="delete-confirm-buttons">
+              <button className="btn btn-secondary flex-1" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary delete-final-btn flex-1" onClick={onDelete}>
+                <Trash2 size={18} />
+                <span>Permanently Delete</span>
+              </button>
             </div>
           )}
         </div>
@@ -255,6 +262,8 @@ export const BookDetailsModal: React.FC<BookDetailsModalProps> = ({
           display: flex;
           flex-direction: column;
           gap: 1.5rem;
+          overflow-y: auto;
+          flex: 1;
         }
 
         .details-top-info {
@@ -504,11 +513,19 @@ export const BookDetailsModal: React.FC<BookDetailsModalProps> = ({
           border-radius: var(--radius-sm);
         }
 
-        /* Buttons footer */
+        /* Sticky action footer */
+        .details-action-footer {
+          border-top: 1px solid var(--border-color);
+          background-color: var(--bg-secondary);
+          padding: 1rem 1.5rem;
+          /* Safe area inset for Android/iOS nav bars */
+          padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+          flex-shrink: 0;
+        }
+
         .details-action-buttons {
           display: flex;
           gap: 0.75rem;
-          margin-top: 0.5rem;
         }
 
         .flex-1 {
@@ -558,7 +575,6 @@ export const BookDetailsModal: React.FC<BookDetailsModalProps> = ({
           display: flex;
           gap: 0.75rem;
           width: 100%;
-          margin-top: 0.5rem;
         }
 
         .delete-final-btn {
