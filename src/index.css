@@ -1,0 +1,332 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
+
+:root {
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  
+  /* Light Mode - Warm Ivory */
+  --bg-primary: #FAF7F2;      /* Warm ivory base */
+  --bg-secondary: #FFFFFF;    /* Pure white for cards */
+  --bg-tertiary: #F3ECE0;     /* Slightly darker warm tone for sidebars/details */
+  
+  --text-primary: #2D2A26;    /* Deep charcoal */
+  --text-secondary: #6B645D;  /* Muted charcoal */
+  --text-tertiary: #999086;   /* Disabled/Subtle */
+  
+  --accent: #9E6436;          /* Warm leather accent */
+  --accent-hover: #7E4F28;
+  --accent-light: #F4EAE0;
+  
+  --border-color: #EADFD0;
+  --border-focus: #9E6436;
+  
+  --shadow-sm: 0 1px 3px rgba(45, 42, 38, 0.04);
+  --shadow-md: 0 6px 16px rgba(45, 42, 38, 0.06);
+  --shadow-lg: 0 16px 32px rgba(45, 42, 38, 0.1);
+  
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-full: 9999px;
+  
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] {
+  /* Dark Mode - Deep Charcoal */
+  --bg-primary: #121212;      /* Deep charcoal base */
+  --bg-secondary: #1E1E1E;    /* Soft charcoal for cards */
+  --bg-tertiary: #282828;     /* Slightly lighter charcoal */
+  
+  --text-primary: #E6E1DA;    /* Warm off-white */
+  --text-secondary: #A8A29A;  /* Muted off-white */
+  --text-tertiary: #757069;   /* Disabled/Subtle */
+  
+  --accent: #D4AF37;          /* Soft gold accent */
+  --accent-hover: #B8962E;
+  --accent-light: #2A261D;
+  
+  --border-color: #2D2D2D;
+  --border-focus: #D4AF37;
+  
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Reset & Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  transition: all var(--transition-fast);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Layout Utilities */
+.app-container {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
+}
+
+.main-content {
+  flex: 1;
+  padding: 2.5rem;
+  margin-left: 280px; /* Sidebar width */
+  transition: margin-left var(--transition-normal);
+  max-width: 1400px;
+  margin-right: auto;
+}
+
+@media (max-width: 1024px) {
+  .main-content {
+    margin-left: 0;
+    padding: 1.5rem;
+    padding-bottom: 5.5rem; /* Spacer for bottom navigation */
+  }
+}
+
+/* Premium Card Layouts */
+.card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-slow), box-shadow var(--transition-slow), border-color var(--transition-fast);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-focus);
+}
+
+/* Book Cover Styles */
+.book-cover-container {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+  transition: transform var(--transition-slow), box-shadow var(--transition-slow);
+  background: var(--bg-tertiary);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem;
+}
+
+.book-cover-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 8px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.05) 50%, rgba(255, 255, 255, 0.1) 100%);
+  z-index: 2;
+}
+
+/* Modal Styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: fadeIn var(--transition-fast) forwards;
+}
+
+.modal-content {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 540px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  position: relative;
+  animation: slideUp var(--transition-slow) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Drag & Drop Zone */
+.dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  background-color: var(--bg-primary);
+  transition: all var(--transition-normal);
+}
+
+.dropzone.active {
+  border-color: var(--accent);
+  background-color: var(--accent-light);
+}
+
+/* Button & Form Elements */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-full);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background-color: var(--accent);
+  color: #FFFFFF !important;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+.btn-secondary {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background-color: var(--border-color);
+}
+
+.input-field {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.input-field:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* Epub & PDF Reader Overlay */
+.reader-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-primary);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+}
+
+.reader-header {
+  height: 60px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  background-color: var(--bg-secondary);
+}
+
+.reader-body {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.reader-toc-drawer {
+  width: 300px;
+  border-right: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  overflow-y: auto;
+  transition: transform var(--transition-normal);
+}
+
+.reader-viewer-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-y: auto;
+  padding: 2rem;
+}
