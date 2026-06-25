@@ -466,6 +466,31 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
               handleViewportClick(e.clientX, e.target as HTMLElement);
             }
           });
+
+          // Inject custom margins, spacing and responsive image styles
+          const style = doc.createElement('style');
+          style.id = 'epub-reader-spacing-override';
+          style.textContent = `
+            html, body {
+              box-sizing: border-box !important;
+              margin: 0 !important;
+              height: 100% !important;
+            }
+            body {
+              max-width: 760px !important;
+              margin: 0 auto !important;
+              padding-left: clamp(20px, 5vw, 48px) !important;
+              padding-right: clamp(20px, 5vw, 48px) !important;
+              padding-top: 28px !important;
+              padding-bottom: 40px !important;
+            }
+            img {
+              max-width: 100% !important;
+              height: auto !important;
+              object-fit: contain !important;
+            }
+          `;
+          doc.head.appendChild(style);
         }
       });
 
@@ -584,7 +609,12 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
         'color': `${themeColors.text} !important`,
         'line-height': `${settings.lineHeight === 'compact' ? 1.25 : settings.lineHeight === 'comfortable' ? 1.5 : 1.85} !important`,
         'font-family': 'var(--font-sans) !important',
-        'padding': '0 20px !important'
+        'max-width': '760px !important',
+        'margin': '0 auto !important',
+        'padding-left': 'clamp(20px, 5vw, 48px) !important',
+        'padding-right': 'clamp(20px, 5vw, 48px) !important',
+        'padding-top': '28px !important',
+        'padding-bottom': '40px !important'
       },
       p: {
         'line-height': `${settings.lineHeight === 'compact' ? 1.25 : settings.lineHeight === 'comfortable' ? 1.5 : 1.85} !important`
