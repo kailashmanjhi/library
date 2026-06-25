@@ -351,6 +351,14 @@ button {
   display: flex;
   justify-content: center;
   align-items: center;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 2rem;
+}
+
+.epub-viewer-element {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }

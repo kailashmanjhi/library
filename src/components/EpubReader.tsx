@@ -432,7 +432,7 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
         width: '100%',
         height: '100%',
         flow: 'paginated',
-        spread: 'auto',
+        spread: 'none',
         allowScriptedContent: true
       });
       renditionRef.current = rendition;
@@ -470,8 +470,10 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
           // Inject custom margins, spacing and responsive image styles
           const style = doc.createElement('style');
           style.id = 'epub-reader-spacing-override';
+          const isMobileView = window.innerWidth <= 768;
           style.textContent = `
             html, body {
+              overflow-x: hidden !important;
               box-sizing: border-box !important;
               margin: 0 !important;
               height: 100% !important;
@@ -479,18 +481,28 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
             body {
               max-width: 760px !important;
               margin: 0 auto !important;
-              padding-left: clamp(20px, 5vw, 48px) !important;
-              padding-right: clamp(20px, 5vw, 48px) !important;
-              padding-top: 28px !important;
-              padding-bottom: 40px !important;
+              box-sizing: border-box !important;
+              padding-top: ${isMobileView ? '72px' : '56px'} !important;
+              padding-bottom: ${isMobileView ? '96px' : '80px'} !important;
+              padding-left: ${isMobileView ? '24px' : '48px'} !important;
+              padding-right: ${isMobileView ? '24px' : '48px'} !important;
             }
-            img {
+            img, svg, video, canvas {
               max-width: 100% !important;
               height: auto !important;
               object-fit: contain !important;
             }
           `;
           doc.head.appendChild(style);
+
+          // Resize rendition after CSS injection so epub.js recalculates columns
+          requestAnimationFrame(() => {
+            if (renditionRef.current && viewerRef.current) {
+              const w = viewerRef.current.clientWidth;
+              const h = viewerRef.current.clientHeight;
+              renditionRef.current.resize(w, h);
+            }
+          });
         }
       });
 
@@ -602,8 +614,13 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
     if (!renditionRef.current) return;
     const rendition = renditionRef.current;
     const themeColors = THEMES[settings.theme];
+    const isMobileView = window.innerWidth <= 768;
     
     const themeRules = {
+      'html, body': {
+        'overflow-x': 'hidden !important',
+        'box-sizing': 'border-box !important'
+      },
       body: {
         'background-color': `${themeColors.bg} !important`,
         'color': `${themeColors.text} !important`,
@@ -611,10 +628,11 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
         'font-family': 'var(--font-sans) !important',
         'max-width': '760px !important',
         'margin': '0 auto !important',
-        'padding-left': 'clamp(20px, 5vw, 48px) !important',
-        'padding-right': 'clamp(20px, 5vw, 48px) !important',
-        'padding-top': '28px !important',
-        'padding-bottom': '40px !important'
+        'box-sizing': 'border-box !important',
+        'padding-top': `${isMobileView ? '72px' : '56px'} !important`,
+        'padding-bottom': `${isMobileView ? '96px' : '80px'} !important`,
+        'padding-left': `${isMobileView ? '24px' : '48px'} !important`,
+        'padding-right': `${isMobileView ? '24px' : '48px'} !important`
       },
       p: {
         'line-height': `${settings.lineHeight === 'compact' ? 1.25 : settings.lineHeight === 'comfortable' ? 1.5 : 1.85} !important`
@@ -622,12 +640,25 @@ export const EpubReader: React.FC<EpubReaderProps> = ({
       a: {
         'color': 'var(--accent) !important',
         'text-decoration': 'underline !important'
+      },
+      'img, svg, video, canvas': {
+        'max-width': '100% !important',
+        'height': 'auto !important'
       }
     };
 
     rendition.themes.register('custom-theme', themeRules);
     rendition.themes.select('custom-theme');
     rendition.themes.fontSize(`${settings.fontSize}%`);
+
+    // Resize after theme/settings changes so epub.js recalculates column layout
+    requestAnimationFrame(() => {
+      if (renditionRef.current && viewerRef.current) {
+        const w = viewerRef.current.clientWidth;
+        const h = viewerRef.current.clientHeight;
+        renditionRef.current.resize(w, h);
+      }
+    });
   }, [settings, bookData]);
 
   const updateSetting = <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) => {
