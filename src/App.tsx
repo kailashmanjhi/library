@@ -54,7 +54,33 @@ function App() {
   // 2. Fetch Data once User is authenticated
   useEffect(() => {
     if (!user) return;
-    refreshLibraryData();
+    
+    const checkAndSeed = async () => {
+      const allBooks = metadataService.getBooks();
+      if (allBooks.length === 0) {
+        try {
+          console.log('Seeding sample books...');
+          // Seed EPUB
+          const epubRes = await fetch('/sample.epub');
+          const epubBlob = await epubRes.blob();
+          const epubBook = metadataService.addBook('Georgia CFI Sample', 'IDPF', 'epub', epubBlob.size);
+          await storageService.saveBookFile(epubBook.id, epubBlob);
+
+          // Seed PDF
+          const pdfRes = await fetch('/sample.pdf');
+          const pdfBlob = await pdfRes.blob();
+          const pdfBook = metadataService.addBook('Dummy PDF', 'W3C', 'pdf', pdfBlob.size);
+          await storageService.saveBookFile(pdfBook.id, pdfBlob);
+
+          console.log('Sample books seeded successfully');
+        } catch (e) {
+          console.error('Error seeding sample books:', e);
+        }
+      }
+      refreshLibraryData();
+    };
+
+    checkAndSeed();
   }, [user]);
 
   const loadBookCovers = async (allBooks: Book[]) => {

@@ -1,8 +1,10 @@
 import ePub from 'epubjs';
 import * as pdfjsLib from 'pdfjs-dist';
 
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
 // Configure the pdfjs web worker source
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export const coverService = {
   /**

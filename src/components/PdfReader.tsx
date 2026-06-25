@@ -9,7 +9,6 @@ import {
   Loader2,
   ExternalLink,
   Eye,
-  EyeOff,
   Maximize2,
   Minimize2,
   Type,
@@ -20,8 +19,10 @@ import type { Book } from '../services/metadataService';
 import type { ReadingProgress } from '../services/progressService';
 import { storageService } from '../services/storageService';
 
-// Set up the worker source using CDN to avoid Vite build/bundling asset issues.
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+// Set up the worker source using local Vite-served worker.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface PdfReaderProps {
   book: Book;
@@ -33,11 +34,13 @@ interface PdfReaderProps {
 interface PdfReaderSettings {
   theme: 'ivory' | 'white' | 'sepia' | 'dark';
   readingWidth: 'narrow' | 'medium' | 'wide';
+  animation: 'none' | 'slide' | 'curl';
 }
 
 const DEFAULT_SETTINGS: PdfReaderSettings = {
   theme: 'ivory',
-  readingWidth: 'medium'
+  readingWidth: 'medium',
+  animation: 'slide'
 };
 
 const THEMES = {
@@ -65,17 +68,18 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
   const [canvasModeFailed, setCanvasModeFailed] = useState(false);
 
   // Focus Modes & Settings Panel
-  const [readerMode, setReaderMode] = useState<'normal' | 'focus'>('normal');
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenBanner, setFullscreenBanner] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
+  const [hoveredZone, setHoveredZone] = useState<'left' | 'right' | null>(null);
 
   const [settings, setSettings] = useState<PdfReaderSettings>(() => {
     const saved = localStorage.getItem('library_pdf_reader_settings');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return { ...DEFAULT_SETTINGS, ...parsed };
       } catch {
         // use defaults
       }
@@ -83,10 +87,17 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
     return DEFAULT_SETTINGS;
   });
 
+  // Page Turn Animation state & ref
+  const [animatingState, setAnimatingState] = useState<{ direction: 'next' | 'prev'; type: 'none' | 'slide' | 'curl' } | null>(null);
+  const animatingStateRef = useRef<any>(null);
+  animatingStateRef.current = animatingState;
+  const isTurningPageRef = useRef<boolean>(false);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fullscreenBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // 1. Load book PDF Blob URL from IndexedDB
   useEffect(() => {
@@ -219,30 +230,59 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
   // 4. Fullscreen Listener
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isCurrentlyFullscreen = !!document.fullscreenElement;
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement || 
+        (document as any).webkitFullscreenElement || 
+        (document as any).msFullscreenElement || 
+        (document as any).mozFullscreenElement
+      );
       setIsFullscreen(isCurrentlyFullscreen);
       if (isCurrentlyFullscreen) {
-        setReaderMode('focus');
         setFullscreenBanner(true);
-        const timer = setTimeout(() => setFullscreenBanner(false), 2000);
-        return () => clearTimeout(timer);
+        if (fullscreenBannerTimerRef.current) {
+          clearTimeout(fullscreenBannerTimerRef.current);
+        }
+        fullscreenBannerTimerRef.current = setTimeout(() => {
+          setFullscreenBanner(false);
+        }, 2000);
+        
+        // Reveal controls briefly on entering fullscreen
+        resetInactivityTimer();
+      } else {
+        setFullscreenBanner(false);
+        if (fullscreenBannerTimerRef.current) {
+          clearTimeout(fullscreenBannerTimerRef.current);
+        }
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
     };
   }, []);
 
   // 5. Inactivity Timer (Auto-Hide Controls)
+  const showAppearanceRef = useRef(showAppearance);
+
+  useEffect(() => {
+    showAppearanceRef.current = showAppearance;
+  }, [showAppearance]);
+
   const resetInactivityTimer = () => {
     setControlsVisible(true);
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current);
     }
     
-    if (readerMode === 'focus' && !showAppearance) {
+    if (!showAppearanceRef.current) {
       inactivityTimerRef.current = setTimeout(() => {
         setControlsVisible(false);
       }, 2500);
@@ -250,13 +290,20 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
   };
 
   useEffect(() => {
-    resetInactivityTimer();
+    if (showAppearance) {
+      setControlsVisible(true);
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+    } else {
+      resetInactivityTimer();
+    }
     return () => {
       if (inactivityTimerRef.current) {
         clearTimeout(inactivityTimerRef.current);
       }
     };
-  }, [readerMode, showAppearance]);
+  }, [showAppearance]);
 
   const registerActivityEvents = (target: Document | Window | HTMLElement) => {
     target.addEventListener('mousemove', resetInactivityTimer);
@@ -270,6 +317,96 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
     target.removeEventListener('mousedown', resetInactivityTimer);
     target.removeEventListener('keydown', resetInactivityTimer);
     target.removeEventListener('touchstart', resetInactivityTimer);
+  };
+
+  const isInteractiveElement = (el: HTMLElement | null): boolean => {
+    if (!el) return false;
+    const interactiveTags = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'OPTION', 'LABEL'];
+    let current: HTMLElement | null = el;
+    while (current && current !== document.body) {
+      if (interactiveTags.includes(current.tagName)) {
+        return true;
+      }
+      if (current.getAttribute('role') === 'button') {
+        return true;
+      }
+      if (
+        current.classList.contains('reader-header') ||
+        current.classList.contains('reader-footer-nav') ||
+        current.classList.contains('appearance-panel') ||
+        current.classList.contains('canvas-rendering-indicator')
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  };
+
+  const hasActiveSelection = (target: HTMLElement | null): boolean => {
+    const mainSelection = window.getSelection()?.toString();
+    if (mainSelection && mainSelection.trim().length > 0) {
+      return true;
+    }
+    const targetDoc = target?.ownerDocument;
+    if (targetDoc) {
+      const targetSelection = targetDoc.getSelection()?.toString();
+      if (targetSelection && targetSelection.trim().length > 0) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const handleViewportClick = (clientX: number, target: HTMLElement | null) => {
+    if (useNativeViewer || loading || renderError || showAppearanceRef.current) {
+      return;
+    }
+    if (isInteractiveElement(target)) {
+      return;
+    }
+    if (hasActiveSelection(target)) {
+      return;
+    }
+    const width = window.innerWidth;
+    const isMobile = width <= 768;
+    const ratio = isMobile ? 0.32 : 0.28;
+    const leftBound = width * ratio;
+    const rightBound = width * (1 - ratio);
+
+    if (clientX < leftBound) {
+      triggerPageTurn('prev');
+    } else if (clientX > rightBound) {
+      triggerPageTurn('next');
+    } else {
+      setControlsVisible(prev => !prev);
+    }
+  };
+
+  const handleMouseMove = (clientX: number, isMouseDown: boolean) => {
+    if (useNativeViewer || isMouseDown || window.innerWidth <= 768 || loading || renderError || showAppearanceRef.current) {
+      setHoveredZone(null);
+      return;
+    }
+    const width = window.innerWidth;
+    const leftBound = width * 0.28;
+    const rightBound = width * (1 - 0.28);
+
+    if (clientX < leftBound) {
+      setHoveredZone('left');
+    } else if (clientX > rightBound) {
+      setHoveredZone('right');
+    } else {
+      setHoveredZone(null);
+    }
+  };
+
+  const handleWindowMouseMove = (e: MouseEvent) => {
+    handleMouseMove(e.clientX, e.buttons > 0);
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredZone(null);
   };
 
   // 6. Keyboard Shortcuts & Click Listeners
@@ -289,10 +426,10 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
       let handled = false;
 
       if (key === 'ArrowRight' || key === 'ArrowDown' || key === ' ' || key === 'PageDown') {
-        handleNextPage();
+        triggerPageTurn('next');
         handled = true;
       } else if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'PageUp') {
-        handlePrevPage();
+        triggerPageTurn('prev');
         handled = true;
       } else if (key === 'f' || key === 'F') {
         toggleFullscreen();
@@ -303,27 +440,30 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
       } else if (key === 'Escape') {
         if (showAppearance) {
           setShowAppearance(false);
-        } else if (document.fullscreenElement) {
+        } else if (document.fullscreenElement || (document as any).webkitFullscreenElement || (document as any).msFullscreenElement || (document as any).mozFullscreenElement || isFullscreen) {
           exitFullscreen();
-        } else if (readerMode === 'focus') {
-          setReaderMode('normal');
         }
         handled = true;
       }
 
       if (handled) {
         event.preventDefault();
+        event.stopPropagation();
       }
     };
 
     registerActivityEvents(window);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
       unregisterActivityEvents(window);
     };
-  }, [pdfDoc, pageNumber, numPages, isFullscreen, showAppearance, readerMode, useNativeViewer]);
+  }, [pdfDoc, pageNumber, numPages, isFullscreen, showAppearance, useNativeViewer, loading, renderError]);
 
   const handlePrevPage = () => {
     if (pageNumber > 1) {
@@ -337,6 +477,65 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
     }
   };
 
+  const getOverlayBg = (themeBg: string, isCurl: boolean) => {
+    if (!isCurl) return themeBg;
+    if (themeBg.startsWith('#')) {
+      return themeBg + 'E6';
+    }
+    return themeBg;
+  };
+
+  const triggerPageTurn = (direction: 'next' | 'prev') => {
+    if (isTurningPageRef.current || animatingStateRef.current) {
+      return;
+    }
+    isTurningPageRef.current = true;
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const animType = prefersReducedMotion ? 'none' : settings.animation;
+
+    const isMobile = window.innerWidth <= 768;
+    const duration = animType === 'none'
+      ? 0
+      : (animType === 'slide' ? 180 : (isMobile ? 600 : 750));
+
+    const lockDuration = animType === 'none'
+      ? 250
+      : duration + 50;
+
+    if (animType === 'none') {
+      if (direction === 'next') {
+        handleNextPage();
+      } else {
+        handlePrevPage();
+      }
+      setTimeout(() => {
+        isTurningPageRef.current = false;
+      }, lockDuration);
+      return;
+    }
+
+    const midpoint = duration / 2;
+
+    setAnimatingState({ direction, type: animType });
+
+    setTimeout(() => {
+      if (direction === 'next') {
+        handleNextPage();
+      } else {
+        handlePrevPage();
+      }
+    }, midpoint);
+
+    setTimeout(() => {
+      setAnimatingState(null);
+    }, duration);
+
+    setTimeout(() => {
+      isTurningPageRef.current = false;
+    }, lockDuration);
+  };
+
   const handleZoomOut = () => {
     setScale(Math.max(0.5, scale - 0.25));
   };
@@ -346,32 +545,79 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
   };
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      if (readerContainerRef.current) {
-        readerContainerRef.current.requestFullscreen()
+    const element = readerContainerRef.current;
+    if (!element) return;
+
+    const requestFs = element.requestFullscreen || 
+                      (element as any).webkitRequestFullscreen || 
+                      (element as any).msRequestFullscreen || 
+                      (element as any).mozRequestFullScreen;
+
+    const exitFs = document.exitFullscreen || 
+                   (document as any).webkitExitFullscreen || 
+                   (document as any).msExitFullscreen || 
+                   (document as any).mozCancelFullScreen;
+
+    const getFsElement = () => document.fullscreenElement || 
+                              (document as any).webkitFullscreenElement || 
+                              (document as any).msFullscreenElement || 
+                              (document as any).mozFullscreenElement;
+
+    if (!getFsElement()) {
+      if (requestFs) {
+        requestFs.call(element)
           .then(() => {
             setIsFullscreen(true);
-            setReaderMode('focus');
           })
           .catch(err => {
-            console.error('Error entering fullscreen:', err);
+            console.warn('Native requestFullscreen failed, falling back to CSS:', err);
+            setIsFullscreen(true);
+            setFullscreenBanner(true);
+            if (fullscreenBannerTimerRef.current) clearTimeout(fullscreenBannerTimerRef.current);
+            fullscreenBannerTimerRef.current = setTimeout(() => setFullscreenBanner(false), 2000);
+            resetInactivityTimer();
           });
+      } else {
+        // Fallback for Safari iOS / mobile devices without API
+        setIsFullscreen(true);
+        setFullscreenBanner(true);
+        if (fullscreenBannerTimerRef.current) clearTimeout(fullscreenBannerTimerRef.current);
+        fullscreenBannerTimerRef.current = setTimeout(() => setFullscreenBanner(false), 2000);
+        resetInactivityTimer();
       }
     } else {
-      document.exitFullscreen()
-        .then(() => {
-          setIsFullscreen(false);
-        })
-        .catch(err => {
-          console.error('Error exiting fullscreen:', err);
-        });
+      if (exitFs) {
+        exitFs.call(document)
+          .then(() => {
+            setIsFullscreen(false);
+          })
+          .catch(err => {
+            console.warn('Native exitFullscreen failed, falling back to CSS:', err);
+            setIsFullscreen(false);
+          });
+      } else {
+        setIsFullscreen(false);
+      }
     }
   };
 
   const exitFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
+    const exitFs = document.exitFullscreen || 
+                   (document as any).webkitExitFullscreen || 
+                   (document as any).msExitFullscreen || 
+                   (document as any).mozCancelFullScreen;
+
+    const getFsElement = () => document.fullscreenElement || 
+                              (document as any).webkitFullscreenElement || 
+                              (document as any).msFullscreenElement || 
+                              (document as any).mozFullscreenElement;
+
+    if (getFsElement()) {
+      if (exitFs) {
+        exitFs.call(document).catch(err => console.warn('exitFullscreen failed:', err));
+      }
     }
+    setIsFullscreen(false);
   };
 
   const updateSetting = <K extends keyof PdfReaderSettings>(key: K, value: PdfReaderSettings[K]) => {
@@ -413,7 +659,10 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
       <header className="reader-header" style={{ borderColor: activeTheme.border }}>
         <div className="reader-header-left">
           <button 
-            onClick={onClose} 
+            onClick={() => {
+              exitFullscreen();
+              onClose();
+            }} 
             className="reader-back-btn" 
             title="Back to Bookshelf"
             aria-label="Back to bookshelf"
@@ -459,21 +708,7 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
             </button>
           )}
 
-          {/* Focus Mode Toggle */}
-          <button 
-            onClick={() => {
-              const nextMode = readerMode === 'normal' ? 'focus' : 'normal';
-              setReaderMode(nextMode);
-              if (nextMode === 'normal') {
-                setControlsVisible(true);
-              }
-            }} 
-            className={`reader-header-btn ${readerMode === 'focus' ? 'active' : ''}`}
-            title={readerMode === 'focus' ? "Focus Mode Active" : "Enable Focus Mode"}
-            aria-label="Toggle focus mode"
-          >
-            {readerMode === 'focus' ? <EyeOff size={20} /> : <Eye size={20} />}
-          </button>
+
 
           {/* Appearance Settings Panel Toggle */}
           <button 
@@ -502,24 +737,43 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
         className="reader-body" 
         onClick={(e) => {
           resetInactivityTimer();
-          
-          // Mobile Responsive Tap zones when clicking reader body
-          const width = window.innerWidth;
-          const clientX = e.clientX;
-          const leftBound = width * 0.33;
-          const rightBound = width * 0.66;
-          
-          if (width <= 768 && !useNativeViewer && !loading && !renderError) {
-            if (clientX < leftBound) {
-              handlePrevPage();
-            } else if (clientX > rightBound) {
-              handleNextPage();
-            } else {
-              setControlsVisible(prev => !prev);
-            }
-          }
+          handleViewportClick(e.clientX, e.target as HTMLElement);
         }}
+        onMouseLeave={handleMouseLeave}
       >
+        {/* Invisible Hit Zones for Navigating */}
+        <div className="reader-hit-zones">
+          <div className="hit-zone prev-zone">
+            <div className={`hover-chevron left-chevron ${hoveredZone === 'left' ? 'visible' : ''}`}>
+              <ChevronLeft size={36} />
+            </div>
+          </div>
+          <div className="hit-zone center-zone" />
+          <div className="hit-zone next-zone">
+            <div className={`hover-chevron right-chevron ${hoveredZone === 'right' ? 'visible' : ''}`}>
+              <ChevronRight size={36} />
+            </div>
+          </div>
+        </div>
+
+        {/* Page Turn Animation Overlay */}
+        {animatingState && (
+          <div 
+            className={`page-turn-overlay ${animatingState.type} ${animatingState.direction}`}
+            style={{
+              backgroundColor: getOverlayBg(activeTheme.bg, animatingState.type === 'curl'),
+              animationDuration: `${animatingState.type === 'slide' ? 180 : (window.innerWidth <= 768 ? 600 : 750)}ms`,
+              ['--anim-duration' as any]: `${animatingState.type === 'slide' ? 180 : (window.innerWidth <= 768 ? 600 : 750)}ms`
+            } as React.CSSProperties}
+          >
+            {animatingState.type === 'curl' && (
+              <>
+                <div className="curl-edge-left" />
+                <div className="curl-edge-right" />
+              </>
+            )}
+          </div>
+        )}
         {loading && (
           <div className="reader-loading-spinner container-centered">
             <Loader2 size={36} className="animate-spin text-accent" />
@@ -569,33 +823,7 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
               )}
             </div>
 
-            {/* Pagination hit zones / Floating buttons */}
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePrevPage();
-              }}
-              className={`nav-overlay-btn prev-overlay ${pageNumber === 1 ? 'disabled' : ''}`}
-              disabled={pageNumber === 1}
-              title="Previous Page"
-              aria-label="Previous page"
-              style={{ color: activeTheme.text }}
-            >
-              <ChevronLeft size={24} />
-            </button>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleNextPage();
-              }}
-              className={`nav-overlay-btn next-overlay ${pageNumber === numPages ? 'disabled' : ''}`}
-              disabled={pageNumber === numPages}
-              title="Next Page"
-              aria-label="Next page"
-              style={{ color: activeTheme.text }}
-            >
-              <ChevronRight size={24} />
-            </button>
+            {/* Nav Overlays / Hit Zones removed for absolute width-ratio zones */}
           </div>
         )}
 
@@ -612,7 +840,11 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
 
         {/* Appearance Control Drawer Panel */}
         {showAppearance && (
-          <div className="appearance-panel" style={{ backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }}>
+          <div 
+            className="appearance-panel" 
+            onClick={(e) => e.stopPropagation()}
+            style={{ backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }}
+          >
             <div className="panel-header" style={{ borderColor: activeTheme.border }}>
               <h3>Appearance Settings</h3>
               <button onClick={() => setShowAppearance(false)} aria-label="Close settings" className="panel-close-btn">
@@ -693,6 +925,24 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
                   >
                     Download
                   </button>
+                </div>
+              </div>
+
+              {/* Page turn animation selection */}
+              <div className="settings-group">
+                <span className="settings-label">Page Transition</span>
+                <div className="setting-options-row">
+                  {(['none', 'slide', 'curl'] as const).map(anim => (
+                    <button 
+                      key={anim}
+                      onClick={() => updateSetting('animation', anim)}
+                      className={`option-chip ${settings.animation === anim ? 'active' : ''}`}
+                      aria-label={`${anim} page transition`}
+                      style={{ borderColor: activeTheme.border, backgroundColor: activeTheme.bg }}
+                    >
+                      {anim.charAt(0).toUpperCase() + anim.slice(1)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -807,9 +1057,23 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
           box-sizing: border-box;
         }
 
-        .controls-hidden .reader-body {
-          padding: 0;
+        /* Fullscreen Mode Layout Enhancements */
+        .reader-overlay.fullscreen .reader-body {
+          padding: 0 !important;
         }
+
+        .reader-overlay.fullscreen .canvas-wrapper {
+          max-width: 100% !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+
+        .reader-overlay.fullscreen .pdf-canvas-container {
+          padding: 0 !important;
+        }
+
+
 
         .container-centered {
           margin: auto;
@@ -1171,41 +1435,98 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
           border-radius: var(--radius-full);
         }
 
-        /* Hit Zones */
-        .nav-overlay-btn {
+        /* Subtle hover chevrons for desktop */
+        .hover-chevron {
           position: absolute;
-          top: 0;
-          bottom: 0;
-          width: 10%;
-          min-width: 60px;
-          max-width: 120px;
+          top: 50%;
+          transform: translateY(-50%);
+          z-index: 15;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.2s ease, transform 0.2s ease;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: transparent;
+          width: 50px;
+          height: 50px;
+          border-radius: var(--radius-full);
+          background-color: rgba(0, 0, 0, 0.03);
           color: inherit;
-          opacity: 0;
+        }
+
+        .theme-dark .hover-chevron {
+          background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .left-chevron {
+          left: 2rem;
+          transform: translateY(-50%) translateX(-10px);
+        }
+
+        .right-chevron {
+          right: 2rem;
+          transform: translateY(-50%) translateX(10px);
+        }
+
+        .left-chevron.visible {
+          opacity: 0.35;
+          transform: translateY(-50%) translateX(0);
+        }
+
+        .right-chevron.visible {
+          opacity: 0.35;
+          transform: translateY(-50%) translateX(0);
+        }
+
+        /* Nav Overlays / Hit Zones */
+        .reader-hit-zones {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          display: flex;
+          pointer-events: none;
           z-index: 10;
-          transition: all var(--transition-normal);
         }
 
-        .nav-overlay-btn:hover {
-          opacity: 0.6;
-          background: linear-gradient(to right, rgba(0, 0, 0, 0.02), transparent);
+        .hit-zone {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
         }
 
-        .next-overlay:hover {
-          background: linear-gradient(to left, rgba(0, 0, 0, 0.02), transparent);
+        .prev-zone {
+          width: 28%;
         }
 
-        .prev-overlay { left: 0; }
-        .next-overlay { right: 0; }
+        .center-zone {
+          width: 44%;
+        }
+
+        .next-zone {
+          width: 28%;
+        }
 
         @media (max-width: 768px) {
-          .nav-overlay-btn {
-            display: none;
+          .prev-zone {
+            width: 32%;
           }
-          
+
+          .center-zone {
+            width: 36%;
+          }
+
+          .next-zone {
+            width: 32%;
+          }
+
+          .hover-chevron {
+            display: none !important;
+          }
+
           .reader-header {
             padding: 0 1rem;
           }
@@ -1229,10 +1550,214 @@ export const PdfReader: React.FC<PdfReaderProps> = ({
           to { transform: translateY(0); }
         }
 
+        /* Page Turn Animation Overlays */
+        .page-turn-overlay {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          height: 100%;
+          z-index: 25;
+          pointer-events: none;
+        }
+
+        /* Slide Animation styles */
+        .page-turn-overlay.slide.next {
+          left: 0;
+          width: 100%;
+          transform: translateX(100%);
+          box-shadow: -10px 0 25px rgba(0, 0, 0, 0.15);
+          animation: slide-next 180ms ease-in-out forwards;
+        }
+
+        .page-turn-overlay.slide.prev {
+          left: 0;
+          width: 100%;
+          transform: translateX(-100%);
+          box-shadow: 10px 0 25px rgba(0, 0, 0, 0.15);
+          animation: slide-prev 180ms ease-in-out forwards;
+        }
+
+        @keyframes slide-next {
+          0% { transform: translateX(100%); }
+          55% { transform: translateX(0%); }
+          100% { transform: translateX(-100%); }
+        }
+
+        @keyframes slide-prev {
+          0% { transform: translateX(-100%); }
+          55% { transform: translateX(0%); }
+          100% { transform: translateX(100%); }
+        }
+
+        /* Page Curl Animation styles */
+        .page-turn-overlay.curl.next {
+          right: 0;
+          width: 100%;
+          transform-origin: right center;
+          transform: scaleX(0);
+          box-shadow: -10px 0 25px rgba(0, 0, 0, 0.15);
+          animation: curl-next var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        .page-turn-overlay.curl.prev {
+          left: 0;
+          width: 100%;
+          transform-origin: left center;
+          transform: scaleX(0);
+          box-shadow: 10px 0 25px rgba(0, 0, 0, 0.15);
+          animation: curl-prev var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        .curl-edge-left, .curl-edge-right {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          width: 50px;
+          height: 100%;
+          pointer-events: none;
+          opacity: 0;
+        }
+
+        .curl.next .curl-edge-left {
+          left: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(to right, 
+            rgba(0,0,0,0) 0%, 
+            rgba(0,0,0,0.2) 40%, 
+            rgba(0,0,0,0.3) 60%, 
+            rgba(255,255,255,0.4) 80%, 
+            rgba(255,255,255,0.8) 100%
+          );
+          animation: edge-left-next-anim var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        .curl.next .curl-edge-right {
+          right: 0;
+          transform: translateX(100%);
+          background: linear-gradient(to left, 
+            rgba(0,0,0,0) 0%, 
+            rgba(0,0,0,0.2) 40%, 
+            rgba(0,0,0,0.3) 60%, 
+            rgba(255,255,255,0.4) 80%, 
+            rgba(255,255,255,0.8) 100%
+          );
+          animation: edge-right-next-anim var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        .curl.prev .curl-edge-left {
+          left: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(to right, 
+            rgba(0,0,0,0) 0%, 
+            rgba(0,0,0,0.2) 40%, 
+            rgba(0,0,0,0.3) 60%, 
+            rgba(255,255,255,0.4) 80%, 
+            rgba(255,255,255,0.8) 100%
+          );
+          animation: edge-left-prev-anim var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        .curl.prev .curl-edge-right {
+          right: 0;
+          transform: translateX(100%);
+          background: linear-gradient(to left, 
+            rgba(0,0,0,0) 0%, 
+            rgba(0,0,0,0.2) 40%, 
+            rgba(0,0,0,0.3) 60%, 
+            rgba(255,255,255,0.4) 80%, 
+            rgba(255,255,255,0.8) 100%
+          );
+          animation: edge-right-prev-anim var(--anim-duration, 750ms) cubic-bezier(0.645, 0.045, 0.355, 1) forwards;
+        }
+
+        @keyframes curl-next {
+          0% {
+            transform-origin: right center;
+            transform: scaleX(0) skewY(0deg);
+          }
+          12% {
+            transform-origin: right center;
+            transform: scaleX(0.08) skewY(-1deg);
+          }
+          45% {
+            transform-origin: right center;
+            transform: scaleX(1) skewY(0deg);
+          }
+          50% {
+            transform-origin: left center;
+            transform: scaleX(1) skewY(0deg);
+          }
+          88% {
+            transform-origin: left center;
+            transform: scaleX(0.08) skewY(1deg);
+          }
+          100% {
+            transform-origin: left center;
+            transform: scaleX(0) skewY(0deg);
+          }
+        }
+
+        @keyframes curl-prev {
+          0% {
+            transform-origin: left center;
+            transform: scaleX(0) skewY(0deg);
+          }
+          12% {
+            transform-origin: left center;
+            transform: scaleX(0.08) skewY(1deg);
+          }
+          45% {
+            transform-origin: left center;
+            transform: scaleX(1) skewY(0deg);
+          }
+          50% {
+            transform-origin: right center;
+            transform: scaleX(1) skewY(0deg);
+          }
+          88% {
+            transform-origin: right center;
+            transform: scaleX(0.08) skewY(-1deg);
+          }
+          100% {
+            transform-origin: right center;
+            transform: scaleX(0) skewY(0deg);
+          }
+        }
+
+        @keyframes edge-left-next-anim {
+          0% { opacity: 0; }
+          12% { opacity: 1; }
+          45% { opacity: 1; }
+          46%, 100% { opacity: 0; }
+        }
+
+        @keyframes edge-right-next-anim {
+          0%, 54% { opacity: 0; }
+          55% { opacity: 1; }
+          88% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+
+        @keyframes edge-right-prev-anim {
+          0% { opacity: 0; }
+          12% { opacity: 1; }
+          45% { opacity: 1; }
+          46%, 100% { opacity: 0; }
+        }
+
+        @keyframes edge-left-prev-anim {
+          0%, 54% { opacity: 0; }
+          55% { opacity: 1; }
+          88% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .reader-header,
           .reader-footer-nav,
-          .appearance-panel {
+          .appearance-panel,
+          .hover-chevron,
+          .page-turn-overlay {
             transition: none !important;
             animation: none !important;
           }

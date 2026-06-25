@@ -7,8 +7,10 @@ import { metadataService } from '../services/metadataService';
 import { coverService } from '../services/coverService';
 import { classifyBookCategory, extractIsbn } from '../utils/categoryClassifier';
 
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
 // Configure the pdfjs web worker source
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface UploadModalProps {
   onClose: () => void;
